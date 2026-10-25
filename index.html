@@ -15,16 +15,15 @@
     <!-- Inicializace WASM modulu (Emscripten) -->
     <script>
         var openSCAD = null;
-        var pendingCompilation = false;
         
         var Module = {
             noInitialRun: true,
-            noExitRuntime: true, // Klíčové: udrží jádro běžet i po první kompilaci
-            locateFile: function(path) {
+            noExitRuntime: true,
+            locateFile: function(path, scriptDirectory) {
                 if (path.endsWith('.wasm')) {
                     return 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/' + path;
                 }
-                return path;
+                return scriptDirectory + path;
             },
             onRuntimeInitialized: function() {
                 openSCAD = Module;
@@ -33,16 +32,19 @@
                     loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
                     setTimeout(() => loader.style.display = 'none', 3000);
                 }
-                
-                // Pokud uživatel vložil kód během načítání, zkompilujeme ho
-                if(document.getElementById('scad-input').value.trim() !== "" || pendingCompilation) {
-                    compileScad();
+            },
+            onAbort: function(err) {
+                const loader = document.getElementById('wasm-badge');
+                if (loader) {
+                    loader.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-red-400"></i> Chyba stahování WASM (zkuste Ctrl+F5)';
                 }
+                console.error('Kritická chyba: WASM modul selhal.', err);
             },
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
         };
     </script>
+    <!-- Pokud by stahování jádra stále zlobilo, jsdelivr má občas výpadky. Můžeš případně smazat "@0.0.4" pro vždy nejnovější verzi -->
     <script src="https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js"></script>
 
     <style>
@@ -55,12 +57,6 @@
         ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
         .modal { display: none; }
         .modal.active { display: flex; }
-        
-        #toast {
-            transition: opacity 0.4s ease, transform 0.4s ease;
-            opacity: 0; transform: translateY(20px); pointer-events: none;
-        }
-        #toast.show { opacity: 1; transform: translateY(0); }
     </style>
 </head>
 <body class="text-gray-200 h-screen flex flex-col overflow-hidden relative">
@@ -84,7 +80,11 @@
                 <i class="fa-regular fa-copy"></i> <span data-i18n="copy">Copy SCAD</span>
             </button>
             <button onclick="downloadCode()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-md text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-900/50">
-                <i class="fa-solid fa-download"></i> <span data-i18n="download">Download .scad</span>
+                <i class="fa-solid fa-download"></i> <span data-i18n="download">.scad</span>
+            </button>
+            <!-- NOVÉ TLAČÍTKO PRO STL -->
+            <button onclick="downloadSTL()" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-1.5 rounded-md text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-purple-900/50">
+                <i class="fa-solid fa-cube"></i> <span data-i18n="downloadStl">Download .stl</span>
             </button>
         </div>
     </header>
@@ -101,15 +101,16 @@
             <textarea id="scad-input" autofocus class="flex-1 w-full bg-gray-900 text-blue-300 font-mono text-sm p-4 outline-none border-none focus:ring-inset focus:ring-2 focus:ring-blue-500/50 transition-all" spellcheck="false" placeholder="// Paste your OpenSCAD code here (Ctrl+V)"></textarea>
             
             <div class="p-4 bg-gray-800 border-t border-gray-700">
-                <button onclick="optimizeOrientation()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-md font-semibold text-sm transition flex justify-center items-center gap-2 shadow-md">
-                    <i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="orientBtn">Suggest Print Orientation</span>
+                <!-- NOVÉ TLAČÍTKO PREVIEW MÍSTO ORIENTACE -->
+                <button onclick="compileScad()" class="w-full bg-green-600 hover:bg-green-500 text-white py-2.5 rounded-md font-semibold text-sm transition flex justify-center items-center gap-2 shadow-md">
+                    <i class="fa-solid fa-play"></i> <span data-i18n="previewBtn">Preview (Render)</span>
                 </button>
             </div>
 
             <!-- Loader indikátor pro kompilaci -->
             <div id="compiling-loader" class="absolute inset-0 bg-gray-900/70 z-20 flex-col items-center justify-center backdrop-blur-sm" style="display: none;">
-                <i class="fa-solid fa-gear fa-spin text-3xl text-indigo-400 mb-2"></i>
-                <p class="text-indigo-300 text-sm font-bold mt-2" id="compile-status" data-i18n="compiling">Kompiluji model...</p>
+                <i class="fa-solid fa-gear fa-spin text-3xl text-green-400 mb-2"></i>
+                <p class="text-green-300 text-sm font-bold mt-2" id="compile-status" data-i18n="compiling">Kompiluji model...</p>
             </div>
         </aside>
 
@@ -121,7 +122,7 @@
                 </button>
             </div>
             
-            <!-- Nenápadný štítek načítání WASM -->
+            <!-- Štítek načítání WASM -->
             <div id="wasm-badge" class="absolute top-4 right-4 bg-gray-800/80 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs font-semibold backdrop-blur-sm flex items-center gap-2 z-10">
                 <i class="fa-solid fa-circle-notch fa-spin text-blue-400"></i> 
                 <span data-i18n="wasmLoading">Stahuji jádro OpenSCAD na pozadí...</span>
@@ -129,13 +130,6 @@
 
             <div class="absolute bottom-4 left-4 text-xs text-gray-500 pointer-events-none" data-i18n="controls">
                 Rotate: Left Mouse | Pan: Right Mouse | Zoom: Scroll
-            </div>
-
-            <div id="toast" class="absolute bottom-4 right-4 bg-yellow-600/90 backdrop-blur-md text-white px-4 py-3 rounded-lg shadow-lg border border-yellow-500 flex items-start gap-3 max-w-sm z-20">
-                <i class="fa-solid fa-circle-info mt-0.5"></i>
-                <div class="text-sm font-medium" data-i18n="warnText">
-                    Object auto-rotated flat (Z=0). This is a suggestion and may not be optimal.
-                </div>
             </div>
         </section>
     </main>
@@ -169,6 +163,7 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
+                <li><strong>v2.2:</strong> Přidáno tlačítko Preview (manuální render), zrušen autokompilátor, přidán STL export.</li>
                 <li><strong>v2.1:</strong> Asynchronní stahování jádra na pozadí, oprava zablokování překladače.</li>
                 <li><strong>v2.0:</strong> Přechod na reálné jádro <b>OpenSCAD WebAssembly</b>, podpora STL kompilace.</li>
             </ul>
@@ -182,19 +177,17 @@
         // --- Jazyky ---
         const dict = {
             'en': {
-                'copy': 'Copy SCAD', 'download': 'Download .scad', 'editor': 'SCAD CODE (Paste here)', 
-                'clear': 'Clear', 'orientBtn': 'Suggest Print Orientation', 'resetCam': 'Reset View',
+                'copy': 'Copy SCAD', 'download': '.scad', 'downloadStl': 'Download .stl', 'editor': 'SCAD CODE (Paste here)', 
+                'clear': 'Clear', 'previewBtn': 'Preview (Render)', 'resetCam': 'Reset View',
                 'controls': 'Rotate: Left Mouse | Pan: Right Mouse | Zoom: Scroll',
                 'about': 'About Project', 'changelog': 'Changelog', 'aboutTitle': 'About Project', 'close': 'Close',
-                'warnText': 'Object auto-rotated flat (Z=0). This is a suggestion and may not be optimal.',
                 'wasmLoading': 'Downloading OpenSCAD core in background...', 'compiling': 'Compiling model...'
             },
             'cz': {
-                'copy': 'Kopírovat SCAD', 'download': 'Stáhnout .scad', 'editor': 'SCAD KÓD (Vložte sem)', 
-                'clear': 'Vymazat', 'orientBtn': 'Navrhnout orientaci pro tisk', 'resetCam': 'Obnovit pohled',
+                'copy': 'Kopírovat SCAD', 'download': '.scad', 'downloadStl': 'Stáhnout .stl', 'editor': 'SCAD KÓD (Vložte sem)', 
+                'clear': 'Vymazat', 'previewBtn': 'Zobrazit náhled (Render)', 'resetCam': 'Obnovit pohled',
                 'controls': 'Rotace: Levé tl. | Posun: Pravé tl. | Lupa: Kolečko',
                 'about': 'O projektu', 'changelog': 'Historie změn', 'aboutTitle': 'O projektu', 'close': 'Zavřít',
-                'warnText': 'Objekt byl přetočen naplocho na podložku (Z=0). Jde o automatický návrh.',
                 'wasmLoading': 'Stahuji jádro OpenSCAD na pozadí...', 'compiling': 'Kompiluji model...'
             }
         };
@@ -224,18 +217,9 @@
         function openModal(id) { document.getElementById(id).classList.add('active'); }
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-        let toastTimeout;
-        function showToast() {
-            const toast = document.getElementById('toast');
-            toast.classList.add('show');
-            clearTimeout(toastTimeout);
-            toastTimeout = setTimeout(() => toast.classList.remove('show'), 4000);
-        }
-
-        // --- Historie & Debounce Kompilace ---
+        // --- Historie bez automatické kompilace ---
         let historyStack = [''];
         let historyIndex = 0;
-        let debounceTimer;
 
         textarea.addEventListener('input', (e) => {
             const val = e.target.value;
@@ -243,15 +227,7 @@
                 historyStack = historyStack.slice(0, historyIndex + 1);
                 historyStack.push(val);
                 historyIndex++;
-                
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => {
-                    if (!openSCAD) {
-                        pendingCompilation = true;
-                    } else {
-                        compileScad();
-                    }
-                }, 1500);
+                // AUTO-KOMPILACE ODSTRANĚNA
             }
         });
 
@@ -259,7 +235,6 @@
             if (historyIndex > 0) {
                 historyIndex--;
                 textarea.value = historyStack[historyIndex];
-                if(openSCAD) compileScad();
             }
         }
 
@@ -267,7 +242,6 @@
             if (historyIndex < historyStack.length - 1) {
                 historyIndex++;
                 textarea.value = historyStack[historyIndex];
-                if(openSCAD) compileScad();
             }
         }
 
@@ -287,11 +261,30 @@
         }
 
         function copyCode() { navigator.clipboard.writeText(textarea.value); }
+        
         function downloadCode() {
             const blob = new Blob([textarea.value], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = url; a.download = 'model.scad';
             a.click(); URL.revokeObjectURL(url);
+        }
+
+        // --- NOVÝ STL DOWNLOAD ---
+        function downloadSTL() {
+            if (!openSCAD) {
+                alert(currentLang === 'cz' ? 'Jádro OpenSCAD se ještě nenačetlo.' : 'OpenSCAD core is not loaded yet.');
+                return;
+            }
+            try {
+                // Pokusí se přečíst naposledy zkompilovaný STL soubor v paměti Emscriptenu
+                const stlData = openSCAD.FS.readFile('/model.stl');
+                const blob = new Blob([stlData], { type: 'application/sla' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'model.stl';
+                a.click(); URL.revokeObjectURL(url);
+            } catch (err) {
+                alert(currentLang === 'cz' ? 'Nejprve musíte kód zkompilovat pomocí tlačítka Preview.' : 'You need to Preview the code first.');
+            }
         }
 
         // --- Three.js Setup ---
@@ -329,24 +322,29 @@
 
         // --- OPENSCAD WASM KOMPILACE ---
         function compileScad() {
-            pendingCompilation = false;
             const code = textarea.value;
-            if (!code.trim() || !openSCAD) return;
+            if (!code.trim()) return;
+            
+            if (!openSCAD) {
+                alert(currentLang === 'cz' ? 'Počkejte prosím na stažení jádra (pravý horní roh 3D náhledu).' : 'Please wait for the core to load (top right badge).');
+                return;
+            }
 
             const loaderUi = document.getElementById('compiling-loader');
             loaderUi.style.display = 'flex';
 
             setTimeout(() => {
                 try {
-                    // Odstranění předchozích souborů v paměti, aby nedocházelo ke kolizím
+                    // Čištění virtuálního souborového systému
                     try { openSCAD.FS.unlink('/model.scad'); } catch(e){}
                     try { openSCAD.FS.unlink('/model.stl'); } catch(e){}
 
                     openSCAD.FS.writeFile('/model.scad', code);
                     
-                    // Volání jádra s vynuceným výstupem
+                    // Volání jádra kompilátoru
                     openSCAD.callMain(['/model.scad', '-o', '/model.stl']);
                     
+                    // Načtení STL výstupu zpět z paměti
                     const stlData = openSCAD.FS.readFile('/model.stl');
                     
                     const stlLoader = new THREE.STLLoader();
@@ -375,23 +373,18 @@
 
                     scene.add(currentMesh);
                     alignMeshToGrid(currentMesh);
+                    document.getElementById('compile-status').innerText = currentLang === 'cz' ? 'Hotovo!' : 'Done!';
 
                 } catch (err) {
                     console.error("Chyba kompilace SCAD kódu:", err);
-                    document.getElementById('compile-status').innerText = "Chyba kompilace (více v konzoli)";
-                    setTimeout(() => { document.getElementById('compile-status').innerText = currentLang === 'cz' ? 'Kompiluji model...' : 'Compiling model...'; }, 3000);
+                    document.getElementById('compile-status').innerText = currentLang === 'cz' ? "Chyba kódu (více v konzoli)" : "Code error (see console)";
                 } finally {
-                    loaderUi.style.display = 'none';
+                    setTimeout(() => {
+                        loaderUi.style.display = 'none';
+                        document.getElementById('compile-status').innerText = currentLang === 'cz' ? 'Kompiluji model...' : 'Compiling model...';
+                    }, 1000);
                 }
             }, 50);
-        }
-
-        function optimizeOrientation() {
-            if (!currentMesh) return;
-            currentMesh.rotation.x -= Math.PI / 2;
-            alignMeshToGrid(currentMesh);
-            showToast();
-            textarea.focus();
         }
 
         window.addEventListener('resize', () => {
