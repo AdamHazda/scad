@@ -1,0 +1,6 @@
+{
+  "name": "OpenSCAD Web Studio",
+  "description": "Webové parametrické 3D CAD studio pro OpenSCAD s interaktivním 3D náhledem, vlastním customizerem parametrů a exportem do STL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
