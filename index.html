@@ -12,38 +12,34 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
-    <!-- Správné načtení LOKÁLNÍHO ES6 modulu -->
-    <script type="module">
-        // Importujeme tovární funkci modulu přímo ze staženého souboru
-        import OpenSCAD from './openscad.js';
-        
-        // Zpřístupníme jádro globálně, aby k němu měla přístup funkce compileScad()
+    <!-- 1. Připravíme konfiguraci do globální proměnné Module -->
+    <script>
         window.openSCAD = null;
-        
-        // Inicializace jádra
-        OpenSCAD({
+        window.Module = {
             noInitialRun: true,
             noExitRuntime: true,
-            locateFile: function(path, scriptDirectory) {
-                return path; // Soubor openscad.wasm leží hned vedle
+            locateFile: function(path) {
+                return path; // hledá openscad.wasm lokálně ve stejné složce
+            },
+            onRuntimeInitialized: function() {
+                window.openSCAD = window.Module;
+                const loader = document.getElementById('wasm-badge');
+                if (loader) {
+                    loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
+                    setTimeout(() => loader.style.display = 'none', 3000);
+                }
+                // Autorender po prvotním startu, pokud už je vložen kód
+                if (document.getElementById('scad-input').value.trim() !== "") {
+                    compileScad();
+                }
             },
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
-        }).then(function(instance) {
-            window.openSCAD = instance;
-            const loader = document.getElementById('wasm-badge');
-            if (loader) {
-                loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
-                setTimeout(() => loader.style.display = 'none', 3000);
-            }
-        }).catch(function(err) {
-            const loader = document.getElementById('wasm-badge');
-            if (loader) {
-                loader.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-red-400"></i> Chyba modulu';
-            }
-            console.error('Kritická chyba načítání WASM:', err);
-        });
+        };
     </script>
+    
+    <!-- 2. Skript načteme jako modul, aby fungoval import.meta, ale bez nutnosti exportu -->
+    <script type="module" src="./openscad.js"></script>
 
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #111827; }
@@ -115,7 +111,7 @@
             
             <div id="wasm-badge" class="absolute top-4 right-4 bg-gray-800/80 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs font-semibold backdrop-blur-sm flex items-center gap-2 z-10">
                 <i class="fa-solid fa-circle-notch fa-spin text-blue-400"></i> 
-                <span data-i18n="wasmLoading">Startuji jádro OpenSCAD...</span>
+                <span data-i18n="wasmLoading">Startuji lokální jádro OpenSCAD...</span>
             </div>
 
             <div class="absolute bottom-4 left-4 text-xs text-gray-500 pointer-events-none" data-i18n="controls">
@@ -151,8 +147,8 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
-                <li><strong>v2.4:</strong> Oprava inicializace ES6 modulu pro správné spuštění jádra na GitHub Pages.</li>
-                <li><strong>v2.3:</strong> Přechod na lokální self-hosted WASM jádro na GitHub Pages (odstraněna závislost na CDN).</li>
+                <li><strong>v2.5:</strong> Návrat k Autorenderu (1.2s debounce po dopsání) a oprava lokální WASM inicializace.</li>
+                <li><strong>v2.4:</strong> Přechod na lokální self-hosted WASM jádro na GitHub Pages.</li>
             </ul>
             <div class="flex justify-end">
                 <button onclick="closeModal('modal-changelog')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
@@ -204,6 +200,7 @@
 
         let historyStack = [''];
         let historyIndex = 0;
+        let debounceTimer; // Časovač pro autorender
 
         textarea.addEventListener('input', (e) => {
             const val = e.target.value;
@@ -211,6 +208,14 @@
                 historyStack = historyStack.slice(0, historyIndex + 1);
                 historyStack.push(val);
                 historyIndex++;
+                
+                // --- AUTORENDER ---
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    if (window.openSCAD && val.trim() !== "") {
+                        compileScad();
+                    }
+                }, 1200); // Zkompiluje se 1.2 sekundy poté, co uživatel přestane psát
             }
         });
 
@@ -218,6 +223,7 @@
             if (historyIndex > 0) {
                 historyIndex--;
                 textarea.value = historyStack[historyIndex];
+                if (window.openSCAD) compileScad();
             }
         }
 
@@ -225,6 +231,7 @@
             if (historyIndex < historyStack.length - 1) {
                 historyIndex++;
                 textarea.value = historyStack[historyIndex];
+                if (window.openSCAD) compileScad();
             }
         }
 
@@ -305,7 +312,7 @@
             if (!code.trim()) return;
             
             if (!window.openSCAD) {
-                alert(currentLang === 'cz' ? 'Počkejte prosím na nastartování jádra.' : 'Please wait for the core to load.');
+                // Pokud ještě není jádro připraveno, jen potichu končíme (žádný otravný alert při psaní)
                 return;
             }
 
