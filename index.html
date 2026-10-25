@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenSCAD Web Studio v3.2</title>
+    <title>OpenSCAD Web Studio v3.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -12,25 +12,24 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
-    <!-- Správná inicializace ES6 Modulu -->
+    <!-- Definitivní inicializace přes esm.sh CDN -->
     <script type="module">
-        // 1. Stáhneme startovací funkci přímo z modulu na CDN
-        import initOpenSCAD from 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js';
+        // Služba esm.sh automaticky doplní chybějící exporty a převede kód na čistý modul pro prohlížeče
+        import initOpenSCAD from 'https://esm.sh/openscad-wasm@0.0.4';
 
         window.openSCAD = null;
 
-        // 2. Aktivně funkci zavoláme a předáme jí nastavení
+        // Aktivně odstartujeme jádro
         initOpenSCAD({
             noInitialRun: true,
             noExitRuntime: true,
             locateFile: function(path) {
-                // Jádro si samo sáhne pro .wasm soubor, nasměrujeme ho správně na CDN
+                // Těžký 10MB .wasm soubor stále stahujeme napřímo
                 return 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/' + path;
             },
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
         }).then(function(instance) {
-            // 3. Jakmile je hotovo, modul nám vrátí běžící instanci
             window.openSCAD = instance;
             
             const loader = document.getElementById('wasm-badge');
@@ -39,7 +38,7 @@
                 setTimeout(() => loader.style.display = 'none', 3000);
             }
             
-            // Pokud už je v editoru kód, rovnou ho automaticky vyrenderujeme
+            // Pokud je v editoru kód, rovnou vyrenderujeme náhled
             if (typeof compileScad === 'function' && document.getElementById('scad-input').value.trim() !== "") {
                 compileScad();
             }
@@ -69,7 +68,7 @@
             <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/50"><i class="fa-solid fa-cube text-white"></i></div>
             <div class="flex flex-col">
                 <h1 class="text-lg font-bold text-white tracking-wide leading-tight">OpenSCAD Web Studio</h1>
-                <span class="text-[10px] text-blue-400 font-mono tracking-wider">v3.2 - Parametric Edition</span>
+                <span class="text-[10px] text-blue-400 font-mono tracking-wider">v3.3 - Parametric Edition (ESM)</span>
             </div>
         </div>
         <div class="flex items-center gap-4">
@@ -180,8 +179,8 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
-                <li><strong class="text-blue-400">v3.2:</strong> Definitivní oprava startu jádra. Přímé volání inicializační funkce ES6 modulu přes import.</li>
-                <li><strong>v3.0:</strong> Nová záložka Parametry. Automatická detekce proměnných z kódu a grafické rozhraní.</li>
+                <li><strong class="text-blue-400">v3.3:</strong> Definitivní zprovoznění jádra integrací služby esm.sh pro překonání modulárních chyb prohlížeče.</li>
+                <li><strong>v3.0:</strong> Nová záložka Parametry s automatickou detekcí proměnných z kódu.</li>
             </ul>
             <div class="flex justify-end">
                 <button onclick="closeModal('modal-changelog')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
@@ -189,7 +188,7 @@
         </div>
     </div>
 
-    <!-- Níže necháváme registraci Service Workeru, který se nyní postará o bleskové načtení -->
+    <!-- Ponecháno pro Service Worker -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
