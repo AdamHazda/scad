@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenSCAD Web Studio v3.3</title>
+    <title>OpenSCAD Web Studio v3.4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -12,42 +12,50 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
-    <!-- Definitivní inicializace přes esm.sh CDN -->
-    <script type="module">
-        // Služba esm.sh automaticky doplní chybějící exporty a převede kód na čistý modul pro prohlížeče
-        import initOpenSCAD from 'https://esm.sh/openscad-wasm@0.0.4';
+    <!-- 1. KROK: Zabití zaseknutého Service Workeru -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) {
+                    registration.unregister();
+                    console.log("Stará mezipaměť vymazána.");
+                }
+            });
+        }
+    </script>
 
+    <!-- 2. KROK: Čistá inicializace bleskového jádra od O. Chafika -->
+    <script>
         window.openSCAD = null;
-
-        // Aktivně odstartujeme jádro
-        initOpenSCAD({
+        
+        window.Module = {
             noInitialRun: true,
             noExitRuntime: true,
             locateFile: function(path) {
-                // Těžký 10MB .wasm soubor stále stahujeme napřímo
-                return 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/' + path;
+                // Přímé napojení na jeho optimalizovaný .wasm soubor
+                return 'https://ochafik.com/openscad2/' + path;
+            },
+            onRuntimeInitialized: function() {
+                window.openSCAD = window.Module;
+                
+                const loader = document.getElementById('wasm-badge');
+                if (loader) {
+                    loader.innerHTML = '<i class="fa-solid fa-bolt text-yellow-400"></i> Jádro připraveno';
+                    setTimeout(() => loader.style.display = 'none', 3000);
+                }
+                
+                // Pokud je v editoru kód, rovnou vyrenderujeme náhled
+                if (typeof compileScad === 'function' && document.getElementById('scad-input').value.trim() !== "") {
+                    compileScad();
+                }
             },
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
-        }).then(function(instance) {
-            window.openSCAD = instance;
-            
-            const loader = document.getElementById('wasm-badge');
-            if (loader) {
-                loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
-                setTimeout(() => loader.style.display = 'none', 3000);
-            }
-            
-            // Pokud je v editoru kód, rovnou vyrenderujeme náhled
-            if (typeof compileScad === 'function' && document.getElementById('scad-input').value.trim() !== "") {
-                compileScad();
-            }
-        }).catch(function(err) {
-            console.error("Kritická chyba při startu jádra:", err);
-            const loader = document.getElementById('wasm-badge');
-            if (loader) loader.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Chyba startu';
-        });
+        };
     </script>
+    
+    <!-- Načtení čistého skriptu (klasický tag, žádné ES6 moduly) -->
+    <script src="https://ochafik.com/openscad2/openscad.js"></script>
 
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #111827; }
@@ -68,7 +76,7 @@
             <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/50"><i class="fa-solid fa-cube text-white"></i></div>
             <div class="flex flex-col">
                 <h1 class="text-lg font-bold text-white tracking-wide leading-tight">OpenSCAD Web Studio</h1>
-                <span class="text-[10px] text-blue-400 font-mono tracking-wider">v3.3 - Parametric Edition (ESM)</span>
+                <span class="text-[10px] text-yellow-400 font-mono tracking-wider">v3.4 - Parametric Edition (Ochafik Core)</span>
             </div>
         </div>
         <div class="flex items-center gap-4">
@@ -142,7 +150,7 @@
             
             <div id="wasm-badge" class="absolute top-4 right-4 bg-gray-800/80 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs font-semibold backdrop-blur-sm flex items-center gap-2 z-10 shadow-lg">
                 <i class="fa-solid fa-circle-notch fa-spin text-blue-400"></i> 
-                <span data-i18n="wasmLoading">Startuji OpenSCAD jádro...</span>
+                <span data-i18n="wasmLoading">Startuji bleskové jádro...</span>
             </div>
 
             <div class="absolute bottom-4 left-4 text-xs text-gray-500 pointer-events-none drop-shadow-md" data-i18n="controls">
@@ -179,7 +187,7 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
-                <li><strong class="text-blue-400">v3.3:</strong> Definitivní zprovoznění jádra integrací služby esm.sh pro překonání modulárních chyb prohlížeče.</li>
+                <li><strong class="text-yellow-400">v3.4:</strong> Integrace optimalizovaného jádra z ochafik.com pro bleskový start a vyčištění chybné mezipaměti prohlížeče.</li>
                 <li><strong>v3.0:</strong> Nová záložka Parametry s automatickou detekcí proměnných z kódu.</li>
             </ul>
             <div class="flex justify-end">
@@ -188,16 +196,7 @@
         </div>
     </div>
 
-    <!-- Ponecháno pro Service Worker -->
     <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('Cache systém aktivní.'))
-                    .catch(err => console.error('Chyba cache systému:', err));
-            });
-        }
-
         const dict = {
             'en': {
                 'copy': 'Copy SCAD', 'download': '.scad', 'downloadStl': 'Download .stl', 
@@ -215,7 +214,7 @@
                 'clear': 'Vymazat', 'previewBtn': 'Zobrazit náhled (Render)', 'resetCam': 'Obnovit pohled',
                 'controls': 'Rotace: Levé tl. | Posun: Pravé tl. | Lupa: Kolečko',
                 'about': 'O projektu', 'changelog': 'Historie změn', 'aboutTitle': 'O projektu', 'close': 'Zavřít',
-                'wasmLoading': 'Startuji jádro OpenSCAD...', 'compiling': 'Kompiluji model...',
+                'wasmLoading': 'Startuji bleskové jádro...', 'compiling': 'Kompiluji model...',
                 'tabEditor': 'KÓD (Editor)', 'tabParams': 'PARAMETRY (UI)',
                 'editorHint': 'Vložte zdrojový kód modelu',
                 'paramsHint': 'Zde se automaticky načtou proměnné z úvodu vašeho kódu. Hodnoty můžete pohodlně měnit.',
