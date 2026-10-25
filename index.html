@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenSCAD Web Studio v3.1</title>
+    <title>OpenSCAD Web Studio v3.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -12,59 +12,42 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
-    <!-- Inicializace jádra s automatickou neutralizací ES6 modulů -->
-    <script>
+    <!-- Správná inicializace ES6 Modulu -->
+    <script type="module">
+        // 1. Stáhneme startovací funkci přímo z modulu na CDN
+        import initOpenSCAD from 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js';
+
         window.openSCAD = null;
-        
-        window.Module = {
+
+        // 2. Aktivně funkci zavoláme a předáme jí nastavení
+        initOpenSCAD({
             noInitialRun: true,
             noExitRuntime: true,
             locateFile: function(path) {
-                if (path.endsWith('.wasm')) {
-                    return 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/' + path;
-                }
-                return path;
-            },
-            onRuntimeInitialized: function() {
-                window.openSCAD = window.Module;
-                const loader = document.getElementById('wasm-badge');
-                if (loader) {
-                    loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
-                    setTimeout(() => loader.style.display = 'none', 3000);
-                }
-                if (typeof compileScad === 'function' && document.getElementById('scad-input').value.trim() !== "") {
-                    compileScad();
-                }
-            },
-            onAbort: function(err) {
-                const loader = document.getElementById('wasm-badge');
-                if (loader) loader.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Chyba načítání';
-                console.error('Kritická chyba: WASM nelze spustit.', err);
+                // Jádro si samo sáhne pro .wasm soubor, nasměrujeme ho správně na CDN
+                return 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/' + path;
             },
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
-        };
-
-        // Stáhneme skript přes fetch (bude cachováno tvým sw.js) a vyčistíme ho od izolace
-        fetch('https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js')
-            .then(res => res.text())
-            .then(code => {
-                let safeCode = code
-                    .replace(/import\.meta\.url/g, "''")
-                    .replace(/import\.meta/g, "({})")
-                    .replace(/export\s+default/g, "var _fake_export =")
-                    .replace(/export\s*\{[^}]+\};?/g, "")
-                    .replace(/export\s+(function|var|let|const)/g, "$1");
-                
-                const script = document.createElement('script');
-                script.textContent = safeCode;
-                document.body.appendChild(script);
-            })
-            .catch(err => {
-                console.error("Chyba stahování jádra:", err);
-                const badge = document.getElementById('wasm-badge');
-                if (badge) badge.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Selhání sítě';
-            });
+        }).then(function(instance) {
+            // 3. Jakmile je hotovo, modul nám vrátí běžící instanci
+            window.openSCAD = instance;
+            
+            const loader = document.getElementById('wasm-badge');
+            if (loader) {
+                loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
+                setTimeout(() => loader.style.display = 'none', 3000);
+            }
+            
+            // Pokud už je v editoru kód, rovnou ho automaticky vyrenderujeme
+            if (typeof compileScad === 'function' && document.getElementById('scad-input').value.trim() !== "") {
+                compileScad();
+            }
+        }).catch(function(err) {
+            console.error("Kritická chyba při startu jádra:", err);
+            const loader = document.getElementById('wasm-badge');
+            if (loader) loader.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Chyba startu';
+        });
     </script>
 
     <style>
@@ -86,7 +69,7 @@
             <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/50"><i class="fa-solid fa-cube text-white"></i></div>
             <div class="flex flex-col">
                 <h1 class="text-lg font-bold text-white tracking-wide leading-tight">OpenSCAD Web Studio</h1>
-                <span class="text-[10px] text-blue-400 font-mono tracking-wider">v3.1 - Parametric Edition (Cached)</span>
+                <span class="text-[10px] text-blue-400 font-mono tracking-wider">v3.2 - Parametric Edition</span>
             </div>
         </div>
         <div class="flex items-center gap-4">
@@ -197,7 +180,7 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
-                <li><strong class="text-blue-400">v3.1:</strong> Úprava inicializace jádra pro plnou funkčnost (transpiler za letu řešící izolaci modulů).</li>
+                <li><strong class="text-blue-400">v3.2:</strong> Definitivní oprava startu jádra. Přímé volání inicializační funkce ES6 modulu přes import.</li>
                 <li><strong>v3.0:</strong> Nová záložka Parametry. Automatická detekce proměnných z kódu a grafické rozhraní.</li>
             </ul>
             <div class="flex justify-end">
@@ -206,7 +189,7 @@
         </div>
     </div>
 
-    <!-- Ponecháno pro Service Worker -->
+    <!-- Níže necháváme registraci Service Workeru, který se nyní postará o bleskové načtení -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
