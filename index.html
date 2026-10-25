@@ -525,5 +525,16 @@
         animate();
         toggleLanguage(); toggleLanguage();
     </script>
+    <!-- Registrace Service Workeru pro offline mezipaměť -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Cache systém aktivní.'))
+                    .catch(err => console.error('Chyba cache systému:', err));
+            });
+        }
+    </script>
+</body>
 </body>
 </html>
