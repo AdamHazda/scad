@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenSCAD Web Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Three.js a jeho doplňky -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+
+    <!-- Inicializace WASM modulu (Emscripten) -->
+    <script>
+        var openSCAD = null;
+        var pendingCompilation = false;
+        
+        var Module = {
+            noInitialRun: true,
+            noExitRuntime: true, // Klíčové: udrží jádro běžet i po první kompilaci
+            locateFile: function(path) {
+                if (path.endsWith('.wasm')) {
+                    return 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/' + path;
+                }
+                return path;
+            },
+            onRuntimeInitialized: function() {
+                openSCAD = Module;
+                const loader = document.getElementById('wasm-badge');
+                if (loader) {
+                    loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
+                    setTimeout(() => loader.style.display = 'none', 3000);
+                }
+                
+                // Pokud uživatel vložil kód během načítání, zkompilujeme ho
+                if(document.getElementById('scad-input').value.trim() !== "" || pendingCompilation) {
+                    compileScad();
+                }
+            },
+            print: function(text) { console.log('OpenSCAD:', text); },
+            printErr: function(text) { console.error('OpenSCAD Error:', text); }
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #111827; }
+        .canvas-container { background: radial-gradient(circle, #1f2937 0%, #111827 100%); }
+        textarea { resize: none; tab-size: 4; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+        .modal { display: none; }
+        .modal.active { display: flex; }
+        
+        #toast {
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            opacity: 0; transform: translateY(20px); pointer-events: none;
+        }
+        #toast.show { opacity: 1; transform: translateY(0); }
+    </style>
+</head>
+<body class="text-gray-200 h-screen flex flex-col overflow-hidden relative">
+
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 h-14 flex items-center justify-between px-4 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 p-2 rounded-lg"><i class="fa-solid fa-cube text-white"></i></div>
+            <h1 class="text-lg font-bold text-white tracking-wide">OpenSCAD Web Studio</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="flex bg-gray-700 rounded-md overflow-hidden">
+                <button onclick="undo()" class="px-3 py-1.5 hover:bg-gray-600 transition" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+                <button onclick="redo()" class="px-3 py-1.5 hover:bg-gray-600 border-l border-gray-600 transition" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+            </div>
+            <div class="flex bg-gray-700 rounded-md overflow-hidden text-sm font-bold cursor-pointer" onclick="toggleLanguage()">
+                <div id="lang-en" class="px-3 py-1.5 bg-blue-600 text-white">EN</div>
+                <div id="lang-cz" class="px-3 py-1.5 text-gray-400 hover:text-white transition">CZ</div>
+            </div>
+            <button onclick="copyCode()" class="bg-gray-700 hover:bg-gray-600 px-4 py-1.5 rounded-md text-sm font-semibold transition flex items-center gap-2">
+                <i class="fa-regular fa-copy"></i> <span data-i18n="copy">Copy SCAD</span>
+            </button>
+            <button onclick="downloadCode()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-md text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-900/50">
+                <i class="fa-solid fa-download"></i> <span data-i18n="download">Download .scad</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        <!-- Left Panel: Code Editor -->
+        <aside class="w-1/3 min-w-[300px] max-w-[500px] bg-gray-800 border-r border-gray-700 flex flex-col z-10 shadow-xl relative">
+            <div class="p-3 bg-gray-900/50 border-b border-gray-700 flex justify-between items-center">
+                <h2 class="text-sm font-bold text-gray-400" data-i18n="editor">SCAD CODE (Paste here)</h2>
+                <button onclick="clearEditor()" class="text-xs text-gray-500 hover:text-red-400 transition"><i class="fa-solid fa-trash"></i> <span data-i18n="clear">Clear</span></button>
+            </div>
+            
+            <textarea id="scad-input" autofocus class="flex-1 w-full bg-gray-900 text-blue-300 font-mono text-sm p-4 outline-none border-none focus:ring-inset focus:ring-2 focus:ring-blue-500/50 transition-all" spellcheck="false" placeholder="// Paste your OpenSCAD code here (Ctrl+V)"></textarea>
+            
+            <div class="p-4 bg-gray-800 border-t border-gray-700">
+                <button onclick="optimizeOrientation()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-md font-semibold text-sm transition flex justify-center items-center gap-2 shadow-md">
+                    <i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="orientBtn">Suggest Print Orientation</span>
+                </button>
+            </div>
+
+            <!-- Loader indikátor pro kompilaci -->
+            <div id="compiling-loader" class="absolute inset-0 bg-gray-900/70 z-20 flex-col items-center justify-center backdrop-blur-sm" style="display: none;">
+                <i class="fa-solid fa-gear fa-spin text-3xl text-indigo-400 mb-2"></i>
+                <p class="text-indigo-300 text-sm font-bold mt-2" id="compile-status" data-i18n="compiling">Kompiluji model...</p>
+            </div>
+        </aside>
+
+        <!-- Right Panel: 3D Viewer -->
+        <section class="flex-1 relative canvas-container" id="viewer-container">
+            <div class="absolute top-4 left-4 z-10 flex gap-2">
+                <button onclick="resetCamera()" class="bg-gray-800/80 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs font-semibold backdrop-blur-sm border border-gray-700 transition">
+                    <i class="fa-solid fa-video mr-1"></i> <span data-i18n="resetCam">Reset View</span>
+                </button>
+            </div>
+            
+            <!-- Nenápadný štítek načítání WASM -->
+            <div id="wasm-badge" class="absolute top-4 right-4 bg-gray-800/80 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs font-semibold backdrop-blur-sm flex items-center gap-2 z-10">
+                <i class="fa-solid fa-circle-notch fa-spin text-blue-400"></i> 
+                <span data-i18n="wasmLoading">Stahuji jádro OpenSCAD na pozadí...</span>
+            </div>
+
+            <div class="absolute bottom-4 left-4 text-xs text-gray-500 pointer-events-none" data-i18n="controls">
+                Rotate: Left Mouse | Pan: Right Mouse | Zoom: Scroll
+            </div>
+
+            <div id="toast" class="absolute bottom-4 right-4 bg-yellow-600/90 backdrop-blur-md text-white px-4 py-3 rounded-lg shadow-lg border border-yellow-500 flex items-start gap-3 max-w-sm z-20">
+                <i class="fa-solid fa-circle-info mt-0.5"></i>
+                <div class="text-sm font-medium" data-i18n="warnText">
+                    Object auto-rotated flat (Z=0). This is a suggestion and may not be optimal.
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 border-t border-gray-800 h-12 flex items-center justify-between px-6 shrink-0 text-xs text-gray-500">
+        <div class="flex items-center gap-4">
+            <span>&copy; 2026 Adam Hazda</span>
+            <button onclick="openModal('modal-about')" class="hover:text-gray-300 transition" data-i18n="about">About Project</button>
+            <button onclick="openModal('modal-changelog')" class="hover:text-gray-300 transition" data-i18n="changelog">Changelog</button>
+        </div>
+        <div>
+            <a href="https://buymeacoffee.com/hazda.cz" target="_blank" class="inline-flex items-center gap-2 bg-[#FFDD00] text-gray-900 px-3 py-1.5 rounded font-bold hover:bg-[#ffea4d] transition shadow-md">
+                <i class="fa-solid fa-mug-hot"></i> Buy me a coffee
+            </a>
+        </div>
+    </footer>
+
+    <!-- Modals -->
+    <div id="modal-about" class="modal fixed inset-0 bg-black/60 backdrop-blur-sm z-50 items-center justify-center">
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
+            <h3 class="text-lg font-bold text-white mb-3" data-i18n="aboutTitle">About Project</h3>
+            <p class="text-sm text-gray-300 mb-5">OpenSCAD Web Studio by Adam Hazda. Plně lokální kompilátor v prohlížeči pomocí technologie WebAssembly a open-source jádra OpenSCAD.</p>
+            <div class="flex justify-end">
+                <button onclick="closeModal('modal-about')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-changelog" class="modal fixed inset-0 bg-black/60 backdrop-blur-sm z-50 items-center justify-center">
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
+            <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
+            <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
+                <li><strong>v2.1:</strong> Asynchronní stahování jádra na pozadí, oprava zablokování překladače.</li>
+                <li><strong>v2.0:</strong> Přechod na reálné jádro <b>OpenSCAD WebAssembly</b>, podpora STL kompilace.</li>
+            </ul>
+            <div class="flex justify-end">
+                <button onclick="closeModal('modal-changelog')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Jazyky ---
+        const dict = {
+            'en': {
+                'copy': 'Copy SCAD', 'download': 'Download .scad', 'editor': 'SCAD CODE (Paste here)', 
+                'clear': 'Clear', 'orientBtn': 'Suggest Print Orientation', 'resetCam': 'Reset View',
+                'controls': 'Rotate: Left Mouse | Pan: Right Mouse | Zoom: Scroll',
+                'about': 'About Project', 'changelog': 'Changelog', 'aboutTitle': 'About Project', 'close': 'Close',
+                'warnText': 'Object auto-rotated flat (Z=0). This is a suggestion and may not be optimal.',
+                'wasmLoading': 'Downloading OpenSCAD core in background...', 'compiling': 'Compiling model...'
+            },
+            'cz': {
+                'copy': 'Kopírovat SCAD', 'download': 'Stáhnout .scad', 'editor': 'SCAD KÓD (Vložte sem)', 
+                'clear': 'Vymazat', 'orientBtn': 'Navrhnout orientaci pro tisk', 'resetCam': 'Obnovit pohled',
+                'controls': 'Rotace: Levé tl. | Posun: Pravé tl. | Lupa: Kolečko',
+                'about': 'O projektu', 'changelog': 'Historie změn', 'aboutTitle': 'O projektu', 'close': 'Zavřít',
+                'warnText': 'Objekt byl přetočen naplocho na podložku (Z=0). Jde o automatický návrh.',
+                'wasmLoading': 'Stahuji jádro OpenSCAD na pozadí...', 'compiling': 'Kompiluji model...'
+            }
+        };
+
+        let currentLang = 'en';
+
+        function toggleLanguage() {
+            currentLang = currentLang === 'en' ? 'cz' : 'en';
+            document.getElementById('lang-en').className = currentLang === 'en' ? 'px-3 py-1.5 bg-blue-600 text-white' : 'px-3 py-1.5 text-gray-400 hover:text-white transition';
+            document.getElementById('lang-cz').className = currentLang === 'cz' ? 'px-3 py-1.5 bg-blue-600 text-white' : 'px-3 py-1.5 text-gray-400 hover:text-white transition';
+            
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (dict[currentLang][key]) el.innerHTML = dict[currentLang][key];
+            });
+        }
+
+        // --- UI & Focus ---
+        const textarea = document.getElementById('scad-input');
+        window.addEventListener('DOMContentLoaded', () => textarea.focus());
+        document.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A' && !e.target.closest('button')) {
+                textarea.focus();
+            }
+        });
+
+        function openModal(id) { document.getElementById(id).classList.add('active'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+        let toastTimeout;
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.classList.add('show');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+
+        // --- Historie & Debounce Kompilace ---
+        let historyStack = [''];
+        let historyIndex = 0;
+        let debounceTimer;
+
+        textarea.addEventListener('input', (e) => {
+            const val = e.target.value;
+            if (val !== historyStack[historyIndex]) {
+                historyStack = historyStack.slice(0, historyIndex + 1);
+                historyStack.push(val);
+                historyIndex++;
+                
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    if (!openSCAD) {
+                        pendingCompilation = true;
+                    } else {
+                        compileScad();
+                    }
+                }, 1500);
+            }
+        });
+
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                textarea.value = historyStack[historyIndex];
+                if(openSCAD) compileScad();
+            }
+        }
+
+        function redo() {
+            if (historyIndex < historyStack.length - 1) {
+                historyIndex++;
+                textarea.value = historyStack[historyIndex];
+                if(openSCAD) compileScad();
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
+            if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+        });
+
+        function clearEditor() {
+            textarea.value = '';
+            textarea.dispatchEvent(new Event('input'));
+            if (currentMesh) {
+                scene.remove(currentMesh);
+                currentMesh = null;
+            }
+            textarea.focus();
+        }
+
+        function copyCode() { navigator.clipboard.writeText(textarea.value); }
+        function downloadCode() {
+            const blob = new Blob([textarea.value], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'model.scad';
+            a.click(); URL.revokeObjectURL(url);
+        }
+
+        // --- Three.js Setup ---
+        const container = document.getElementById('viewer-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+        camera.position.set(100, 80, 120);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; controls.dampingFactor = 0.05; controls.target.set(0, 20, 0);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); dirLight.position.set(50, 100, 50); scene.add(dirLight);
+
+        const gridHelper = new THREE.GridHelper(300, 60, 0x444444, 0x222222);
+        scene.add(gridHelper);
+
+        let currentMesh = null;
+
+        function resetCamera() {
+            camera.position.set(100, 80, 120);
+            controls.target.set(0, 20, 0);
+        }
+
+        function alignMeshToGrid(mesh) {
+            mesh.updateMatrixWorld();
+            const box = new THREE.Box3().setFromObject(mesh);
+            mesh.position.y -= box.min.y;
+        }
+
+        // --- OPENSCAD WASM KOMPILACE ---
+        function compileScad() {
+            pendingCompilation = false;
+            const code = textarea.value;
+            if (!code.trim() || !openSCAD) return;
+
+            const loaderUi = document.getElementById('compiling-loader');
+            loaderUi.style.display = 'flex';
+
+            setTimeout(() => {
+                try {
+                    // Odstranění předchozích souborů v paměti, aby nedocházelo ke kolizím
+                    try { openSCAD.FS.unlink('/model.scad'); } catch(e){}
+                    try { openSCAD.FS.unlink('/model.stl'); } catch(e){}
+
+                    openSCAD.FS.writeFile('/model.scad', code);
+                    
+                    // Volání jádra s vynuceným výstupem
+                    openSCAD.callMain(['/model.scad', '-o', '/model.stl']);
+                    
+                    const stlData = openSCAD.FS.readFile('/model.stl');
+                    
+                    const stlLoader = new THREE.STLLoader();
+                    const geometry = stlLoader.parse(stlData.buffer);
+
+                    if (currentMesh) {
+                        scene.remove(currentMesh);
+                        currentMesh.geometry.dispose();
+                        currentMesh.material.dispose();
+                    }
+
+                    const material = new THREE.MeshStandardMaterial({ 
+                        color: 0x3b82f6, roughness: 0.4, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
+                    });
+                    
+                    geometry.computeBoundingBox();
+                    const center = new THREE.Vector3();
+                    geometry.boundingBox.getCenter(center);
+                    geometry.translate(-center.x, -center.y, -center.z);
+
+                    currentMesh = new THREE.Mesh(geometry, material);
+                    
+                    const edges = new THREE.EdgesGeometry(geometry);
+                    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x1e3a8a }));
+                    currentMesh.add(line);
+
+                    scene.add(currentMesh);
+                    alignMeshToGrid(currentMesh);
+
+                } catch (err) {
+                    console.error("Chyba kompilace SCAD kódu:", err);
+                    document.getElementById('compile-status').innerText = "Chyba kompilace (více v konzoli)";
+                    setTimeout(() => { document.getElementById('compile-status').innerText = currentLang === 'cz' ? 'Kompiluji model...' : 'Compiling model...'; }, 3000);
+                } finally {
+                    loaderUi.style.display = 'none';
+                }
+            }, 50);
+        }
+
+        function optimizeOrientation() {
+            if (!currentMesh) return;
+            currentMesh.rotation.x -= Math.PI / 2;
+            alignMeshToGrid(currentMesh);
+            showToast();
+            textarea.focus();
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+        toggleLanguage(); toggleLanguage();
+    </script>
+</body>
+</html>
