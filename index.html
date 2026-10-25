@@ -12,49 +12,44 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
-    <!-- Inicializace jádra s opraveným trikem pro moduly -->
+    <!-- Inicializace jádra přes rychlé CDN -->
     <script>
-        window.openSCAD = null;
+        var openSCAD = null;
         
-        // Globální konfigurace
-        window.Module = {
+        var Module = {
             noInitialRun: true,
             noExitRuntime: true,
             locateFile: function(path) {
-                return path; // hledá openscad.wasm lokálně ve stejné složce
+                // Přímé namapování na .wasm soubor na CDN
+                if (path.endsWith('.wasm')) {
+                    return 'https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/' + path;
+                }
+                return path;
             },
             onRuntimeInitialized: function() {
-                window.openSCAD = window.Module;
+                openSCAD = Module;
                 const loader = document.getElementById('wasm-badge');
                 if (loader) {
                     loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
                     setTimeout(() => loader.style.display = 'none', 3000);
                 }
-                // Autorender po prvotním startu
+                // Autorender po načtení
                 if (document.getElementById('scad-input').value.trim() !== "") {
                     compileScad();
                 }
             },
+            onAbort: function(err) {
+                const loader = document.getElementById('wasm-badge');
+                if (loader) loader.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Chyba načítání';
+                console.error('Kritická chyba: WASM nelze spustit.', err);
+            },
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
         };
-
-        // Opravený fetch trik - přidáno script.type = 'module'
-        fetch('./openscad.js')
-            .then(res => res.text())
-            .then(code => {
-                const fixedCode = code.replace(/import\.meta/g, "({url: ''})");
-                const script = document.createElement('script');
-                script.type = 'module'; // <--- TATO VLASTNOST CHYBĚLA
-                script.textContent = fixedCode;
-                document.body.appendChild(script);
-            })
-            .catch(err => {
-                const badge = document.getElementById('wasm-badge');
-                if (badge) badge.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Chyba souboru openscad.js';
-                console.error("Chyba při stahování lokálního jádra:", err);
-            });
     </script>
+    
+    <!-- Načtení jádra přímo ze spolehlivé sítě jsdelivr -->
+    <script src="https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js"></script>
 
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #111827; }
@@ -126,7 +121,7 @@
             
             <div id="wasm-badge" class="absolute top-4 right-4 bg-gray-800/80 border border-gray-700 text-gray-300 px-3 py-1.5 rounded text-xs font-semibold backdrop-blur-sm flex items-center gap-2 z-10">
                 <i class="fa-solid fa-circle-notch fa-spin text-blue-400"></i> 
-                <span data-i18n="wasmLoading">Startuji lokální jádro OpenSCAD...</span>
+                <span data-i18n="wasmLoading">Startuji OpenSCAD jádro...</span>
             </div>
 
             <div class="absolute bottom-4 left-4 text-xs text-gray-500 pointer-events-none" data-i18n="controls">
@@ -151,7 +146,7 @@
     <div id="modal-about" class="modal fixed inset-0 bg-black/60 backdrop-blur-sm z-50 items-center justify-center">
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3" data-i18n="aboutTitle">About Project</h3>
-            <p class="text-sm text-gray-300 mb-5">OpenSCAD Web Studio by Adam Hazda. Plně lokální kompilátor v prohlížeči pomocí technologie WebAssembly a open-source jádra OpenSCAD.</p>
+            <p class="text-sm text-gray-300 mb-5">OpenSCAD Web Studio by Adam Hazda. Kompilátor v prohlížeči pomocí technologie WebAssembly a open-source jádra OpenSCAD.</p>
             <div class="flex justify-end">
                 <button onclick="closeModal('modal-about')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
             </div>
@@ -162,9 +157,8 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
-                <li><strong>v2.7:</strong> Definitivní oprava načítání ES6 modulu přidáním script.type = 'module'.</li>
-                <li><strong>v2.6:</strong> Oprava asynchronního načítání lokálního jádra.</li>
-                <li><strong>v2.5:</strong> Návrat k Autorenderu (1.2s po dopsání).</li>
+                <li><strong>v2.8:</strong> Návrat ke stabilnímu CDN načítání pro plnou kompatibilitu. Zpět Autorender a STL export.</li>
+                <li><strong>v2.0:</strong> Přechod na reálné jádro OpenSCAD WebAssembly.</li>
             </ul>
             <div class="flex justify-end">
                 <button onclick="closeModal('modal-changelog')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
@@ -179,14 +173,14 @@
                 'clear': 'Clear', 'previewBtn': 'Preview (Render)', 'resetCam': 'Reset View',
                 'controls': 'Rotate: Left Mouse | Pan: Right Mouse | Zoom: Scroll',
                 'about': 'About Project', 'changelog': 'Changelog', 'aboutTitle': 'About Project', 'close': 'Close',
-                'wasmLoading': 'Starting local OpenSCAD core...', 'compiling': 'Compiling model...'
+                'wasmLoading': 'Starting OpenSCAD core...', 'compiling': 'Compiling model...'
             },
             'cz': {
                 'copy': 'Kopírovat SCAD', 'download': '.scad', 'downloadStl': 'Stáhnout .stl', 'editor': 'SCAD KÓD (Vložte sem)', 
                 'clear': 'Vymazat', 'previewBtn': 'Zobrazit náhled (Render)', 'resetCam': 'Obnovit pohled',
                 'controls': 'Rotace: Levé tl. | Posun: Pravé tl. | Lupa: Kolečko',
                 'about': 'O projektu', 'changelog': 'Historie změn', 'aboutTitle': 'O projektu', 'close': 'Zavřít',
-                'wasmLoading': 'Startuji lokální jádro OpenSCAD...', 'compiling': 'Kompiluji model...'
+                'wasmLoading': 'Startuji jádro OpenSCAD...', 'compiling': 'Kompiluji model...'
             }
         };
 
@@ -227,7 +221,7 @@
                 
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(() => {
-                    if (window.openSCAD && val.trim() !== "") {
+                    if (openSCAD && val.trim() !== "") {
                         compileScad();
                     }
                 }, 1200); 
@@ -238,7 +232,7 @@
             if (historyIndex > 0) {
                 historyIndex--;
                 textarea.value = historyStack[historyIndex];
-                if (window.openSCAD) compileScad();
+                if (openSCAD) compileScad();
             }
         }
 
@@ -246,7 +240,7 @@
             if (historyIndex < historyStack.length - 1) {
                 historyIndex++;
                 textarea.value = historyStack[historyIndex];
-                if (window.openSCAD) compileScad();
+                if (openSCAD) compileScad();
             }
         }
 
@@ -275,18 +269,18 @@
         }
 
         function downloadSTL() {
-            if (!window.openSCAD) {
+            if (!openSCAD) {
                 alert(currentLang === 'cz' ? 'Jádro OpenSCAD se ještě nenačetlo.' : 'OpenSCAD core is not loaded yet.');
                 return;
             }
             try {
-                const stlData = window.openSCAD.FS.readFile('/model.stl');
+                const stlData = openSCAD.FS.readFile('/model.stl');
                 const blob = new Blob([stlData], { type: 'application/sla' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = 'model.stl';
                 a.click(); URL.revokeObjectURL(url);
             } catch (err) {
-                alert(currentLang === 'cz' ? 'Nejprve musíte kód zkompilovat pomocí tlačítka Preview.' : 'You need to Preview the code first.');
+                alert(currentLang === 'cz' ? 'Nejprve musíte kód zkompilovat.' : 'You need to render the code first.');
             }
         }
 
@@ -326,20 +320,20 @@
             const code = textarea.value;
             if (!code.trim()) return;
             
-            if (!window.openSCAD) return;
+            if (!openSCAD) return;
 
             const loaderUi = document.getElementById('compiling-loader');
             loaderUi.style.display = 'flex';
 
             setTimeout(() => {
                 try {
-                    try { window.openSCAD.FS.unlink('/model.scad'); } catch(e){}
-                    try { window.openSCAD.FS.unlink('/model.stl'); } catch(e){}
+                    try { openSCAD.FS.unlink('/model.scad'); } catch(e){}
+                    try { openSCAD.FS.unlink('/model.stl'); } catch(e){}
 
-                    window.openSCAD.FS.writeFile('/model.scad', code);
-                    window.openSCAD.callMain(['/model.scad', '-o', '/model.stl']);
+                    openSCAD.FS.writeFile('/model.scad', code);
+                    openSCAD.callMain(['/model.scad', '-o', '/model.stl']);
                     
-                    const stlData = window.openSCAD.FS.readFile('/model.stl');
+                    const stlData = openSCAD.FS.readFile('/model.stl');
                     const stlLoader = new THREE.STLLoader();
                     const geometry = stlLoader.parse(stlData.buffer);
 
