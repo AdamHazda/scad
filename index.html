@@ -12,9 +12,11 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
-    <!-- 1. Připravíme konfiguraci do globální proměnné Module -->
+    <!-- Inicializace jádra s trikem pro odstranění import.meta -->
     <script>
         window.openSCAD = null;
+        
+        // Globální konfigurace, kterou si Emscripten po načtení převezme
         window.Module = {
             noInitialRun: true,
             noExitRuntime: true,
@@ -36,10 +38,22 @@
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
         };
+
+        // Trik: Stáhneme skript textově, odstraníme problémový import.meta a spustíme jako běžný kód
+        fetch('./openscad.js')
+            .then(res => res.text())
+            .then(code => {
+                const fixedCode = code.replace(/import\.meta/g, "({})");
+                const script = document.createElement('script');
+                script.textContent = fixedCode;
+                document.body.appendChild(script);
+            })
+            .catch(err => {
+                const badge = document.getElementById('wasm-badge');
+                if (badge) badge.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Chyba souboru openscad.js';
+                console.error("Chyba při stahování lokálního jádra:", err);
+            });
     </script>
-    
-    <!-- 2. Skript načteme jako modul, aby fungoval import.meta, ale bez nutnosti exportu -->
-    <script type="module" src="./openscad.js"></script>
 
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #111827; }
@@ -147,8 +161,8 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
-                <li><strong>v2.5:</strong> Návrat k Autorenderu (1.2s debounce po dopsání) a oprava lokální WASM inicializace.</li>
-                <li><strong>v2.4:</strong> Přechod na lokální self-hosted WASM jádro na GitHub Pages.</li>
+                <li><strong>v2.6:</strong> Oprava asynchronního načítání lokálního jádra (odstranění závislosti na ES6 modulech a import.meta).</li>
+                <li><strong>v2.5:</strong> Návrat k Autorenderu (1.2s po dopsání).</li>
             </ul>
             <div class="flex justify-end">
                 <button onclick="closeModal('modal-changelog')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
@@ -200,7 +214,7 @@
 
         let historyStack = [''];
         let historyIndex = 0;
-        let debounceTimer; // Časovač pro autorender
+        let debounceTimer; 
 
         textarea.addEventListener('input', (e) => {
             const val = e.target.value;
@@ -209,13 +223,12 @@
                 historyStack.push(val);
                 historyIndex++;
                 
-                // --- AUTORENDER ---
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(() => {
                     if (window.openSCAD && val.trim() !== "") {
                         compileScad();
                     }
-                }, 1200); // Zkompiluje se 1.2 sekundy poté, co uživatel přestane psát
+                }, 1200); 
             }
         });
 
@@ -311,10 +324,7 @@
             const code = textarea.value;
             if (!code.trim()) return;
             
-            if (!window.openSCAD) {
-                // Pokud ještě není jádro připraveno, jen potichu končíme (žádný otravný alert při psaní)
-                return;
-            }
+            if (!window.openSCAD) return;
 
             const loaderUi = document.getElementById('compiling-loader');
             loaderUi.style.display = 'flex';
