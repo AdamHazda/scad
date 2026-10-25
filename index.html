@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenSCAD Web Studio v3.0</title>
+    <title>OpenSCAD Web Studio v3.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -12,7 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 
-    <!-- Inicializace jádra do globální paměti -->
+    <!-- Inicializace jádra s automatickou neutralizací ES6 modulů -->
     <script>
         window.openSCAD = null;
         
@@ -32,7 +32,7 @@
                     loader.innerHTML = '<i class="fa-solid fa-check text-green-400"></i> Jádro připraveno';
                     setTimeout(() => loader.style.display = 'none', 3000);
                 }
-                if (document.getElementById('scad-input').value.trim() !== "") {
+                if (typeof compileScad === 'function' && document.getElementById('scad-input').value.trim() !== "") {
                     compileScad();
                 }
             },
@@ -44,10 +44,28 @@
             print: function(text) { console.log('OpenSCAD:', text); },
             printErr: function(text) { console.error('OpenSCAD Error:', text); }
         };
+
+        // Stáhneme skript přes fetch (bude cachováno tvým sw.js) a vyčistíme ho od izolace
+        fetch('https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js')
+            .then(res => res.text())
+            .then(code => {
+                let safeCode = code
+                    .replace(/import\.meta\.url/g, "''")
+                    .replace(/import\.meta/g, "({})")
+                    .replace(/export\s+default/g, "var _fake_export =")
+                    .replace(/export\s*\{[^}]+\};?/g, "")
+                    .replace(/export\s+(function|var|let|const)/g, "$1");
+                
+                const script = document.createElement('script');
+                script.textContent = safeCode;
+                document.body.appendChild(script);
+            })
+            .catch(err => {
+                console.error("Chyba stahování jádra:", err);
+                const badge = document.getElementById('wasm-badge');
+                if (badge) badge.innerHTML = '<i class="fa-solid fa-xmark text-red-400"></i> Selhání sítě';
+            });
     </script>
-    
-    <!-- Načtení jádra s type="module" -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/openscad-wasm@0.0.4/openscad.js"></script>
 
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #111827; }
@@ -68,7 +86,7 @@
             <div class="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/50"><i class="fa-solid fa-cube text-white"></i></div>
             <div class="flex flex-col">
                 <h1 class="text-lg font-bold text-white tracking-wide leading-tight">OpenSCAD Web Studio</h1>
-                <span class="text-[10px] text-blue-400 font-mono tracking-wider">v3.0 - Parametric Edition</span>
+                <span class="text-[10px] text-blue-400 font-mono tracking-wider">v3.1 - Parametric Edition (Cached)</span>
             </div>
         </div>
         <div class="flex items-center gap-4">
@@ -95,7 +113,6 @@
     <main class="flex-1 flex overflow-hidden">
         <aside class="w-1/3 min-w-[320px] max-w-[500px] bg-gray-800 border-r border-gray-700 flex flex-col z-10 shadow-xl relative">
             
-            <!-- Záložky Editor / Parametry -->
             <div class="flex bg-gray-900 border-b border-gray-700 shrink-0">
                 <button id="tab-btn-editor" onclick="switchTab('editor')" class="flex-1 py-2.5 text-xs font-bold text-blue-400 border-b-2 border-blue-500 bg-gray-800 transition">
                     <i class="fa-solid fa-code mr-1"></i> <span data-i18n="tabEditor">KÓD (Editor)</span>
@@ -105,7 +122,6 @@
                 </button>
             </div>
 
-            <!-- Kontejner Editoru -->
             <div id="editor-container" class="flex-1 flex flex-col min-h-0">
                 <div class="p-2 bg-gray-900/30 border-b border-gray-700 flex justify-between items-center shrink-0">
                     <span class="text-[10px] font-mono text-gray-500 ml-2" data-i18n="editorHint">Vložte zdrojový kód modelu</span>
@@ -114,7 +130,6 @@
                 <textarea id="scad-input" autofocus class="flex-1 w-full bg-gray-900 text-blue-300 font-mono text-sm p-4 outline-none border-none focus:ring-inset focus:ring-2 focus:ring-blue-500/50 transition-all" spellcheck="false" placeholder="// Paste your OpenSCAD code here (Ctrl+V)"></textarea>
             </div>
 
-            <!-- Kontejner Parametrů -->
             <div id="params-container" class="flex-1 overflow-y-auto p-5 hidden bg-gray-800/50">
                 <div class="text-xs text-gray-400 mb-4 pb-2 border-b border-gray-700" data-i18n="paramsHint">
                     Zde se automaticky načtou proměnné z úvodu vašeho kódu. Hodnoty můžete pohodlně měnit myší.
@@ -182,9 +197,8 @@
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-3">Changelog</h3>
             <ul class="text-sm text-gray-300 mb-5 list-disc pl-5 space-y-2">
-                <li><strong class="text-blue-400">v3.0:</strong> Nová záložka Parametry. Automatická detekce proměnných z kódu a grafické rozhraní pro jejich editaci s real-time renderem.</li>
-                <li><strong>v2.9:</strong> Finální oprava CDN stahování (type="module").</li>
-                <li><strong>v2.8:</strong> Návrat k Autorenderu a STL export.</li>
+                <li><strong class="text-blue-400">v3.1:</strong> Úprava inicializace jádra pro plnou funkčnost (transpiler za letu řešící izolaci modulů).</li>
+                <li><strong>v3.0:</strong> Nová záložka Parametry. Automatická detekce proměnných z kódu a grafické rozhraní.</li>
             </ul>
             <div class="flex justify-end">
                 <button onclick="closeModal('modal-changelog')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm font-semibold transition" data-i18n="close">Close</button>
@@ -192,7 +206,16 @@
         </div>
     </div>
 
+    <!-- Ponecháno pro Service Worker -->
     <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Cache systém aktivní.'))
+                    .catch(err => console.error('Chyba cache systému:', err));
+            });
+        }
+
         const dict = {
             'en': {
                 'copy': 'Copy SCAD', 'download': '.scad', 'downloadStl': 'Download .stl', 
@@ -214,7 +237,7 @@
                 'tabEditor': 'KÓD (Editor)', 'tabParams': 'PARAMETRY (UI)',
                 'editorHint': 'Vložte zdrojový kód modelu',
                 'paramsHint': 'Zde se automaticky načtou proměnné z úvodu vašeho kódu. Hodnoty můžete pohodlně měnit.',
-                'noParams': 'Nenalezeny žádné parametry. Ujistěte se, že proměnné definujete na začátku kódu (např. <code class="bg-gray-900 px-1 rounded text-blue-300">sirka = 10;</code>).'
+                'noParams': 'Nenalezeny žádné parametry. Ujistěte se, že proměnné definujete na začátku kódu.'
             }
         };
 
@@ -242,7 +265,6 @@
         let historyIndex = 0;
         let debounceTimer; 
 
-        // --- ZÁLOŽKY ---
         function switchTab(tab) {
             const isEditor = tab === 'editor';
             document.getElementById('editor-container').style.display = isEditor ? 'flex' : 'none';
@@ -259,7 +281,6 @@
             if (!isEditor) parseParams();
         }
 
-        // --- PARAMETRY (EXTRAKCE A RENDER) ---
         let currentParams = [];
 
         function parseParams() {
@@ -268,10 +289,8 @@
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                // Zastavit parsování pokud narazíme na moduly/funkce
                 if (line.trim().match(/^(module|function|use|include)\b/)) break; 
                 
-                // Regex hledá: nazev = hodnota; // volitelný komentář
                 const match = line.match(/^([a-zA-Z0-9_]+)\s*=\s*([^;]+);(?:\s*\/\/\s*(.*))?/);
                 if (match) {
                     const name = match[1];
@@ -324,7 +343,7 @@
             container.innerHTML = html;
         }
 
-        function updateParam(idx, newVal) {
+        window.updateParam = function(idx, newVal) {
             const p = currentParams[idx];
             let lines = textarea.value.split('\n');
             let formattedVal = newVal;
@@ -332,7 +351,6 @@
             if (p.type === 'string') formattedVal = `"${newVal}"`;
             else if (p.type === 'boolean') formattedVal = newVal ? 'true' : 'false';
             
-            // Zachovat původní komentář
             const oldLine = lines[p.lineIndex];
             const commentMatch = oldLine.match(/(\/\/.*)$/);
             const commentStr = commentMatch ? ` ${commentMatch[1]}` : '';
@@ -340,12 +358,9 @@
             lines[p.lineIndex] = `${p.name} = ${formattedVal};${commentStr}`;
             textarea.value = lines.join('\n');
             
-            // Vynutit událost pro historii a autorender
             textarea.dispatchEvent(new Event('input'));
-        }
+        };
 
-
-        // --- HISTORIE & RENDER ---
         textarea.addEventListener('input', (e) => {
             const val = e.target.value;
             if (val !== historyStack[historyIndex]) {
@@ -453,7 +468,7 @@
             mesh.position.y -= box.min.y;
         }
 
-        function compileScad() {
+        window.compileScad = function() {
             const code = textarea.value;
             if (!code.trim()) return;
             
@@ -509,7 +524,7 @@
                     }, 1000);
                 }
             }, 50);
-        }
+        };
 
         window.addEventListener('resize', () => {
             camera.aspect = container.clientWidth / container.clientHeight;
@@ -525,16 +540,5 @@
         animate();
         toggleLanguage(); toggleLanguage();
     </script>
-    <!-- Registrace Service Workeru pro offline mezipaměť -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('Cache systém aktivní.'))
-                    .catch(err => console.error('Chyba cache systému:', err));
-            });
-        }
-    </script>
-</body>
 </body>
 </html>
